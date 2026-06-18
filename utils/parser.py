@@ -5,6 +5,44 @@ from typing import Optional
 import pandas as pd
 import xlrd
 
+
+# ── openpyxl 相容層（讓 .xlsx 也能用 xlrd 風格的 API）────────────────────────
+
+class _XlsxSheet:
+    def __init__(self, ws):
+        self._data = [[cell.value for cell in row] for row in ws.iter_rows()]
+
+    @property
+    def nrows(self) -> int:
+        return len(self._data)
+
+    @property
+    def ncols(self) -> int:
+        return max((len(r) for r in self._data), default=0)
+
+    def cell_value(self, r: int, c: int):
+        try:
+            return self._data[r][c]
+        except IndexError:
+            return None
+
+    def row_values(self, r: int) -> list:
+        try:
+            return list(self._data[r])
+        except IndexError:
+            return []
+
+
+class _XlsxBook:
+    def __init__(self, wb):
+        self._wb = wb
+
+    def sheet_names(self) -> list[str]:
+        return list(self._wb.sheetnames)
+
+    def sheet_by_name(self, name: str) -> _XlsxSheet:
+        return _XlsxSheet(self._wb[name])
+
 PURCHASE_MAIN = "進項-可扣抵發票(進貨)"
 SALES_SHEET   = "銷項"
 EXPENSE_SHEET = "進項-發票(費用雜項)"
@@ -273,7 +311,12 @@ def parse_tax_xls(file_bytes: bytes, filename: str, year: int, period: int) -> d
     }
     """
     import io
-    wb = xlrd.open_workbook(file_contents=file_bytes)
+    if filename.lower().endswith(".xlsx"):
+        import openpyxl
+        raw = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        wb = _XlsxBook(raw)
+    else:
+        wb = xlrd.open_workbook(file_contents=file_bytes)
 
     purchases = parse_purchases(wb, year, period)
     sales     = parse_sales(wb, year, period)
